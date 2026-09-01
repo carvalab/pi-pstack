@@ -270,6 +270,11 @@ export default function (pi: ExtensionAPI) {
   let potetoMode = false;
   let todos: string[] = [];
   let potetoHintShown = false;
+  // Delegation tool name: "subagent" when that name is free; "pstack_subagent"
+  // when another extension already provides `subagent`. Set by session_start,
+  // read by the before_agent_start patch so Poteto Mode always names the
+  // tool that is actually registered in this session.
+  let delegationTool = "subagent";
 
   pi.on("session_start", (_event, ctx) => {
     potetoMode = false;
@@ -300,7 +305,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", (event) => {
     if (!potetoMode) return;
     return {
-      systemPrompt: `${event.systemPrompt}\n\nPstack Poteto Mode is enabled for this session. Follow its persisted workflow: use pstack_todo for non-trivial work, select and read the matching playbook, delegate through the subagent tool when delegation helps, verify real behavior, and name only principles that changed a decision. The full skill is at ${path.join(packageRoot(), "skills/poteto-mode/SKILL.md")}.`,
+      systemPrompt: `${event.systemPrompt}\n\nPstack Poteto Mode is enabled for this session. Follow its persisted workflow: use pstack_todo for non-trivial work, select and read the matching playbook, delegate through the ${delegationTool} tool when delegation helps${delegationTool === "pstack_subagent" ? " (the plain subagent tool belongs to another extension)" : ""}, verify real behavior, and name only principles that changed a decision. The full skill is at ${path.join(packageRoot(), "skills/poteto-mode/SKILL.md")}.`,
     };
   });
 
@@ -439,10 +444,18 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
-    name: "subagent",
+  // Registered lazily in session_start, not at load: pi flags tools with the
+  // same name across extensions as a fatal load error, and the user may
+  // already run pi-cohort, pi-subagents, @tintinweb/pi-subagents, etc. When
+  // the `subagent` name is taken we register ours as `pstack_subagent` so
+  // pstack keeps its full semantics (bundled poteto-agent, role→model
+  // routing, chain templating) everywhere; registration happens after pi's
+  // conflict scan, so the two tools coexist in any load order.
+  const registerSubagentTool = (name: string) => pi.registerTool({
+    name,
     label: "Subagent",
     description: `Delegate isolated work to Pi subagents. Supports exactly one of single agent/task, parallel tasks (maximum ${MAX_PARALLEL_TASKS}), or sequential chain. Bundled pstack agents live in ${bundledAgentsDirectory()}.`,
+    promptGuidelines: [`Use ${name} for pstack Poteto Mode playbook delegation (bundled poteto-agent, role-based model selection).`],
     parameters: SubagentParams,
     async execute(_id, params, signal, onUpdate, ctx) {
       const scope = (params.agentScope ?? "bundled") as AgentScope;
@@ -496,5 +509,16 @@ export default function (pi: ExtensionAPI) {
       if (failure(result)) throw new Error(`${result.agent} failed: ${resultText(result)}`);
       return { content: [{ type: "text", text: resultText(result) }], details: { mode: "single", results: [result] } };
     },
+  });
+
+  pi.on("session_start", (_event, ctx) => {
+    if (pi.getAllTools().some((tool) => tool.name === "subagent")) {
+      delegationTool = "pstack_subagent";
+      registerSubagentTool(delegationTool);
+      if (ctx.mode === "tui") ctx.ui.notify("pstack: another extension provides the subagent tool; pstack delegation registered as pstack_subagent.", "info");
+      return;
+    }
+    delegationTool = "subagent";
+    registerSubagentTool(delegationTool);
   });
 }

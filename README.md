@@ -30,6 +30,8 @@ Then restart Pi. Use `pi config` to enable or disable package resources.
 
 The extension registers a `subagent` tool using Pi's official isolated-process pattern. A child runs as a separate `pi --mode json --print --no-session` process and returns only its final result to the parent context.
 
+If another extension already provides a `subagent` tool (pi-cohort, pi-subagents, `@tintinweb/pi-subagents`, ...), pstack registers the same tool as `pstack_subagent` instead, so both coexist in any load order and pstack's semantics (bundled `poteto-agent`, `role`-based model selection) keep working everywhere. Poteto Mode's system prompt names whichever delegation tool is active in the session.
+
 Bundled agents:
 
 - `poteto-agent` for pstack implementation and investigation delegates. It must read the full `poteto-mode` skill before working.
