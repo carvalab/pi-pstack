@@ -439,7 +439,12 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  // Registered lazily in session_start, not at load: pi flags tools with the
+  // same name across extensions as a fatal load error, and the user may
+  // already run pi-cohort, pi-subagents, @tiniweb/pi-subagents, etc. If one
+  // of those provides `subagent`, we defer to it; otherwise we register ours
+  // here — after pi's conflict scan — so coexistence works in every order.
+  const registerSubagentTool = () => pi.registerTool({
     name: "subagent",
     label: "Subagent",
     description: `Delegate isolated work to Pi subagents. Supports exactly one of single agent/task, parallel tasks (maximum ${MAX_PARALLEL_TASKS}), or sequential chain. Bundled pstack agents live in ${bundledAgentsDirectory()}.`,
@@ -496,5 +501,13 @@ export default function (pi: ExtensionAPI) {
       if (failure(result)) throw new Error(`${result.agent} failed: ${resultText(result)}`);
       return { content: [{ type: "text", text: resultText(result) }], details: { mode: "single", results: [result] } };
     },
+  });
+
+  pi.on("session_start", (_event, ctx) => {
+    if (pi.getAllTools().some((tool) => tool.name === "subagent")) {
+      if (ctx.mode === "tui") ctx.ui.notify("pstack: deferring to an existing subagent tool from another extension.", "info");
+      return;
+    }
+    registerSubagentTool();
   });
 }

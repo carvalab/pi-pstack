@@ -6,6 +6,10 @@ Sync upstream `cursor/plugins/pstack` into this port. PR #1 covers upstream comm
 
 The two newer upstream commits `799151d` (#271) and `6fecddb` (#275), both about the `make-bot-ui` skill, are deliberately skipped under the *cursor only* + *no pi compatible* rules — they rely on Cursor's automation API (`update_state`, `api2.cursor.sh` webhooks) and the Grok Bot wake mechanism, which have no pi equivalent. Future syncs should keep skipping `make-bot-ui` unless a pi-native equivalent appears.
 
+### Changed: defer to an existing `subagent` tool
+
+The extension no longer registers its `subagent` tool at load time. Pi treats two extensions registering the same tool name as a fatal load error in non-interactive runs, which broke every `pi -p` invocation when pi-cohort (or pi-subagents, `@tiniweb/pi-subagents`, ...) was installed alongside. Registration now happens in `session_start`, after pi's extension-conflict scan, and only when no other `subagent` tool is present — so pstack coexists with any subagent provider regardless of package order, and a TUI session shows a one-line notice when it defers.
+
 ### Added: persistent pstack opt-in (`/pstack`)
 
 New extension command in the style of ponytail's `/ponytail`: opt-in flag file at `~/.pi/agent/.pstack-active`, opt-in by default. `/pstack on` enables Poteto Mode for the current session and writes the flag so every future session auto-starts with the status bar showing `pstack: poteto mode`. `/pstack off` deletes the flag file and returns to the default-off state. `/pstack status` reports both states. On every session start the flag is applied after the session-branch walk, so it wins over stale in-session toggles: `/poteto-mode off` stays session-only, `/pstack on` survives restarts. `/poteto-mode` shows a one-time hint pointing at `/pstack on` when the flag is unset, so users stop toggling it every session.
