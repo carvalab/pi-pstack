@@ -16,6 +16,29 @@ const MAX_CONCURRENCY = 4;
 const MAX_MODEL_OUTPUT_BYTES = 50 * 1024;
 const MODE_ENTRY = "pstack-mode";
 
+// ponytail-style opt-in flag: ~/.<agent dir>/.pstack-active. Existence means
+// the extension auto-enables poteto mode on every session_start until /pstack
+// off removes the file.
+function pstackFlagPath(): string {
+  return path.join(getAgentDir(), ".pstack-active");
+}
+
+function readPstackFlag(): boolean {
+  return fs.existsSync(pstackFlagPath());
+}
+
+function writePstackFlag(): void {
+  fs.writeFileSync(pstackFlagPath(), "poteto", { encoding: "utf8", mode: 0o600 });
+}
+
+function clearPstackFlag(): void {
+  try {
+    fs.unlinkSync(pstackFlagPath());
+  } catch {
+    // ponytail: best-effort, missing file is the desired end state.
+  }
+}
+
 const Task = Type.Object({
   agent: Type.String({ description: "Agent name. Use poteto-agent for pstack implementation delegates." }),
   task: Type.String({ description: "Self-contained delegated task. Point to files instead of inlining large payloads." }),
@@ -246,6 +269,7 @@ function knownExternalWrite(command: string): string | undefined {
 export default function (pi: ExtensionAPI) {
   let potetoMode = false;
   let todos: string[] = [];
+  let potetoHintShown = false;
 
   pi.on("session_start", (_event, ctx) => {
     potetoMode = false;
@@ -258,6 +282,10 @@ export default function (pi: ExtensionAPI) {
         if (Array.isArray(items) && items.every((item) => typeof item === "string")) todos = items;
       }
     }
+    // The flag is the persistent opt-in and wins over the branch (read after
+    // the walk so a stale MODE_ENTRY cannot clobber it): /pstack on survives
+    // restarts, /poteto-mode off stays session-only.
+    if (readPstackFlag()) potetoMode = true;
     if (ctx.mode === "tui") ctx.ui.setStatus("pstack-mode", potetoMode ? "pstack: poteto mode" : undefined);
   });
 
@@ -299,7 +327,37 @@ export default function (pi: ExtensionAPI) {
       potetoMode = true;
       pi.appendEntry(MODE_ENTRY, { enabled: true });
       ctx.ui.setStatus("pstack-mode", "pstack: poteto mode");
+      // One hint per session: if the persistent flag is not set, tell the user
+      // how to opt in so they stop toggling /poteto-mode each new session.
+      if (!readPstackFlag() && !potetoHintShown) {
+        potetoHintShown = true;
+        ctx.ui.notify("Tip: /pstack on makes this stick across Pi sessions.", "info");
+      }
       await ctx.sendUserMessage(`/skill:poteto-mode${args.trim() ? ` ${args.trim()}` : ""}`);
+    },
+  });
+
+  pi.registerCommand("pstack", {
+    description: "Toggle persistent pstack mode (opt-in). Default off. Usage: /pstack on|off|status",
+    handler: async (args, ctx) => {
+      const arg = args.trim().toLowerCase();
+      if (/^(on|enable)$/.test(arg)) {
+        writePstackFlag();
+        potetoMode = true;
+        pi.appendEntry(MODE_ENTRY, { enabled: true });
+        ctx.ui.setStatus("pstack-mode", "pstack: poteto mode");
+        ctx.ui.notify("pstack mode enabled.", "info");
+        return;
+      }
+      if (/^(off|disable)$/.test(arg)) {
+        clearPstackFlag();
+        potetoMode = false;
+        pi.appendEntry(MODE_ENTRY, { enabled: false });
+        ctx.ui.setStatus("pstack-mode", undefined);
+        ctx.ui.notify("pstack mode disabled.", "info");
+        return;
+      }
+      ctx.ui.notify(`pstack: flag=${readPstackFlag() ? "on" : "off"} session=${potetoMode ? "on" : "off"}`, "info");
     },
   });
 

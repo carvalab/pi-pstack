@@ -1,0 +1,11 @@
+# Changelog
+
+## 2026-09-01
+
+Sync upstream `cursor/plugins/pstack` into this port. PR #1 covers upstream commits `63d938c` (Grok default bump — *not applicable*, this port configures models via `~/.pi/agent/pstack/models.json` and `inherit-parent` defaults, so no hardcoded slug to bump), `4612556` (workflow and boundary guidance), and `bdf7aa3` (verified-checklist multi-PR plan + `check-plan.mjs` validator). All content was adapted to the pi workflow per the four skip buckets in `AGENTS.md` (no port, no pi compatible, cursor only, grok only).
+
+The two newer upstream commits `799151d` (#271) and `6fecddb` (#275), both about the `make-bot-ui` skill, are deliberately skipped under the *cursor only* + *no pi compatible* rules — they rely on Cursor's automation API (`update_state`, `api2.cursor.sh` webhooks) and the Grok Bot wake mechanism, which have no pi equivalent. Future syncs should keep skipping `make-bot-ui` unless a pi-native equivalent appears.
+
+### Added: persistent pstack opt-in (`/pstack`)
+
+New extension command in the style of ponytail's `/ponytail`: opt-in flag file at `~/.pi/agent/.pstack-active`, opt-in by default. `/pstack on` enables Poteto Mode for the current session and writes the flag so every future session auto-starts with the status bar showing `pstack: poteto mode`. `/pstack off` deletes the flag file and returns to the default-off state. `/pstack status` reports both states. On every session start the flag is applied after the session-branch walk, so it wins over stale in-session toggles: `/poteto-mode off` stays session-only, `/pstack on` survives restarts. `/poteto-mode` shows a one-time hint pointing at `/pstack on` when the flag is unset, so users stop toggling it every session.
